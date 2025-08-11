@@ -43,7 +43,7 @@ pub struct Member {
     /// Additional field level annotations
     ///
     /// This is currently used by optional builders.
-    pub extra_annot: Vec<String>,
+    pub extra_annotations: Vec<String>,
     /// Documentation properties extracted from the property
     pub docs: Option<String>,
 }
@@ -105,19 +105,19 @@ impl Container {
             return *can_derive;
         }
 
-        for m in &self.members {
+        for field in &self.members {
             // If the type contains a <, it's a container type. All kopium containers (Map, Vec, Option) have `impl Default`.
             // If the first character is lowercase, assume it's a built-in type and skip the check.
-            if !m.type_.contains('<')
-                && m.type_ != "String"
-                && m.type_ != "IntOrString"
-                && m.type_ != "NaiveDate"
-                && m.type_ != "DateTime"
-                && m.type_.chars().next().unwrap_or_default().is_uppercase()
+            if !field.type_.contains('<')
+                && field.type_ != "String"
+                && field.type_ != "IntOrString"
+                && field.type_ != "NaiveDate"
+                && field.type_ != "DateTime"
+                && field.type_.chars().next().unwrap_or_default().is_uppercase()
                 && containers
                     .iter()
-                    .find(|c| c.name == m.type_)
-                    .is_some_and(|c| !c.can_derive_default(containers))
+                    .find(|container| container.name == field.type_)
+                    .is_some_and(|container| !container.can_derive_default(containers))
             {
                 self.supports_derive_default.set(false).unwrap();
                 return false;
@@ -181,13 +181,20 @@ impl Container {
 
     /// Add builder annotations
     pub fn builder_fields(&mut self) {
-        for m in &mut self.members {
-            if m.type_.starts_with("Option<") {
-                m.extra_annot
-                    .push("#[builder(default, setter(strip_option))]".to_string());
-            } else if m.type_.starts_with("Vec<") || m.type_.starts_with("BTreeMap<") {
-                m.extra_annot.push("#[builder(default)]".to_string());
-            }
+        for field in self
+            .members
+            .iter_mut()
+            .filter(|field| is_defaultable_field(field))
+        {
+            let mut annotation = "#[builder(default".to_owned();
+
+            if field.name == "build" {
+                annotation.push_str(", setter(prefix = \"with_\")")
+            };
+
+            annotation.push_str(")]");
+
+            field.extra_annotations.push(annotation);
         }
     }
 
@@ -227,12 +234,18 @@ impl Output {
 
     /// Add builders to all output members
     ///
-    /// Adds #[builder(default, setter(strip_option))] to all option types.
-    /// Adds #[builder(default)] to required vec and btreemaps.
+    /// - Adds `#[builder(default)]` to required fields whose type is:
+    ///   - `Vec<_>`
+    ///   - `Option<_>`
+    ///   - `HashMap<_, _>`
+    ///   - `BTreeMap<_, _>`
+    /// - Adds `#[builder(setter(strip_option, fallback_prefix = "maybe_"))]` to all option types.
+    /// - Adds `#[builder(setter(prefix = "with_"))]` to all fields whose unprefixed name would cause
+    ///   a collision (and therefore compiler error(s)) in [`typed_builder::TypedBuilder`]-generated code.
     pub fn builder_fields(mut self, builders: bool) -> Self {
         if builders {
-            for c in &mut self.0 {
-                c.builder_fields()
+            for container in &mut self.0 {
+                container.builder_fields()
             }
         }
         self
@@ -273,6 +286,14 @@ impl<T: AsRef<str>> From<T> for MapType {
     }
 }
 
+pub fn is_defaultable_field(field: &Member) -> bool {
+    const DEFAULTABLE_TYPES: &[&str] = &["Vec<", "Option<", "HashMap<", "BTreeMap<"];
+
+    DEFAULTABLE_TYPES
+        .iter()
+        .any(|type_| field.type_.starts_with(type_))
+}
+
 pub fn format_docstr(indent: &str, input: &str) -> String {
     static RE_CODEBLOCK: OnceLock<Regex> = OnceLock::new();
     let re = RE_CODEBLOCK.get_or_init(|| {
@@ -300,7 +321,7 @@ mod test {
             name: name.to_string(),
             type_: "".to_string(),
             serde_annot: vec![],
-            extra_annot: vec![],
+            extra_annotations: vec![],
             docs: None,
         }
     }
@@ -309,7 +330,7 @@ mod test {
             name: name.to_string(),
             type_: "u32".to_string(),
             serde_annot: vec![],
-            extra_annot: vec![],
+            extra_annotations: vec![],
             docs: None,
         }
     }

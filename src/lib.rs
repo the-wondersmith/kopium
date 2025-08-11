@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::{
-    CustomResourceDefinition, CustomResourceDefinitionVersion,
+    CustomResourceDefinition, CustomResourceDefinitionVersion, JSONSchemaProps,
 };
 use kube::{core::Version, ResourceExt};
 use quote::format_ident;
@@ -12,7 +12,7 @@ mod derive;
 mod output;
 
 pub use self::{
-    analyzer::{analyze, Config},
+    analyzer::Config,
     derive::Derive,
     output::{format_docstr, Container, MapType, Member, Output},
 };
@@ -329,7 +329,7 @@ impl KopiumTypeGenerator {
 
                 let name = format_ident!("{}", member.name);
 
-                for annotation in &member.extra_annot {
+                for annotation in &member.extra_annotations {
                     writeln!(&mut generated, "    {}", annotation)?;
                 }
 
@@ -397,7 +397,19 @@ impl KopiumTypeGenerator {
             }
         }
 
-        writeln!(buffer, "#[derive({})]", derives.join(", ")).map_err(Into::into)
+        writeln!(buffer, "#[derive({})]", derives.join(", "))?;
+
+        // TODO: change the `builder` attribute to
+        // "#[builder(field_defaults(setter(strip_option(ignore_invalid, fallback_prefix = \"maybe_\"))))]"
+        // after https://github.com/idanarye/rust-typed-builder/pull/167 is merged
+        if derives.contains(&"TypedBuilder") {
+            writeln!(
+                buffer,
+                "#[builder(field_defaults(setter(strip_option(ignore_invalid))))]"
+            )?;
+        }
+
+        Ok(())
     }
 
     fn write_prelude(&self, results: &[Container], buffer: &mut impl std::fmt::Write) -> Result<()> {
@@ -481,6 +493,15 @@ impl KopiumTypeGenerator {
 
         Ok(())
     }
+}
+
+/// Scan a schema for structs and members, and recurse to find all structs
+///
+/// All found output structs will have their names prefixed by the kind it is for
+pub fn analyze(schema: JSONSchemaProps, kind: &str, cfg: impl std::borrow::Borrow<Config>) -> Result<Output> {
+    let mut res = vec![];
+    analyzer::analyze_schema(&schema, "", kind, 0, &mut res, cfg)?;
+    Ok(Output(res))
 }
 
 pub fn find_crd_version<'a>(

@@ -7,25 +7,16 @@ use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::{
     JSONSchemaProps, JSONSchemaPropsOrArray, JSONSchemaPropsOrBool, JSON,
 };
 
-use crate::{Container, MapType, Member, Output};
+use crate::{Container, MapType, Member};
 
 const IGNORED_KEYS: [&str; 3] = ["metadata", "apiVersion", "kind"];
 
-#[derive(Default)]
+#[derive(Copy, Clone, Debug, Default)]
 pub struct Config {
-    pub no_condition: bool,
-    pub no_object_reference: bool,
     pub map: MapType,
     pub relaxed: bool,
-}
-
-/// Scan a schema for structs and members, and recurse to find all structs
-///
-/// All found output structs will have their names prefixed by the kind it is for
-pub fn analyze(schema: JSONSchemaProps, kind: &str, cfg: Config) -> Result<Output> {
-    let mut res = vec![];
-    analyze_(&schema, "", kind, 0, &mut res, &cfg)?;
-    Ok(Output(res))
+    pub no_condition: bool,
+    pub no_object_reference: bool,
 }
 
 /// Scan a schema for structs and members, and recurse to find all structs
@@ -35,14 +26,15 @@ pub fn analyze(schema: JSONSchemaProps, kind: &str, cfg: Config) -> Result<Outpu
 /// stack: stacked concat of kind + current_{n-1} + ... + current (used to create dedup names/types)
 /// level: recursion level (start at 0)
 /// results: multable list of generated structs (not deduplicated)
-fn analyze_(
+pub(crate) fn analyze_schema(
     schema: &JSONSchemaProps,
     current: &str,
     stack: &str,
     level: u8,
     results: &mut Vec<Container>,
-    cfg: &Config,
+    cfg: impl std::borrow::Borrow<Config>,
 ) -> Result<()> {
+    let cfg = cfg.borrow();
     let props = schema.properties.clone().unwrap_or_default();
     let mut array_recurse_level: HashMap<String, u8> = Default::default();
 
@@ -128,7 +120,7 @@ fn find_containers(
                         // unpack the inner object from the array wrap
                         if let Some(JSONSchemaPropsOrArray::Schema(items)) = &s.as_ref().items {
                             log::debug!("..recursing into object member {}", key);
-                            analyze_(items, &next_key, &next_stack, level + 1, &mut results, cfg)?;
+                            analyze_schema(items, &next_key, &next_stack, level + 1, &mut results, cfg)?;
                             handled_inner = true;
                         }
                     }
@@ -142,7 +134,7 @@ fn find_containers(
                 }
                 if !handled_inner {
                     // normal object recurse
-                    analyze_(value, &next_key, &next_stack, level + 1, &mut results, cfg)?;
+                    analyze_schema(value, &next_key, &next_stack, level + 1, &mut results, cfg)?;
                 }
             }
             "array" => {
@@ -162,7 +154,7 @@ fn find_containers(
                             bail!("could not recurse into vec");
                         }
                     }
-                    analyze_(&inner, &next_key, &next_stack, level + 1, &mut results, cfg)?;
+                    analyze_schema(&inner, &next_key, &next_stack, level + 1, &mut results, cfg)?;
                 }
             }
             "" => {
@@ -218,7 +210,7 @@ fn analyze_enum_properties(
             type_: rust_type,
             name: name.to_string(),
             serde_annot: vec![],
-            extra_annot: vec![],
+            extra_annotations: vec![],
             docs: member_doc,
         })
     }
@@ -313,7 +305,7 @@ fn extract_container(
                 type_: rust_type,
                 name: key.to_string(),
                 serde_annot: vec![],
-                extra_annot: vec![],
+                extra_annotations: vec![],
                 docs: member_doc,
             })
         } else {
@@ -326,7 +318,7 @@ fn extract_container(
                     "default".into(),
                     "skip_serializing_if = \"Option::is_none\"".into(),
                 ],
-                extra_annot: vec![],
+                extra_annotations: vec![],
                 docs: member_doc,
             })
             // TODO: must capture `default` key here instead of blindly using serde default
@@ -588,7 +580,7 @@ mod test {
 
     use k8s_openapi::apiextensions_apiserver::pkg::apis::apiextensions::v1::JSONSchemaProps;
 
-    use super::{analyze, Config as Cfg};
+    use crate::{analyze, Config as Cfg};
 
     static START: Once = Once::new();
     fn init() {
