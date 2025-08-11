@@ -28,7 +28,7 @@ struct Kopium {
     #[arg(long)]
     api_version: Option<String>,
 
-    /// Do not emit prelude
+    /// Do not emit a prelude module
     #[arg(long)]
     hide_prelude: bool,
 
@@ -87,11 +87,11 @@ struct Kopium {
     #[command(subcommand)]
     command: Option<Command>,
 
-    /// Enable all automatation features
+    /// Enable all automation features
     ///
     /// This is a recommended, but early set of features that generates the most rust native code.
     ///
-    /// It contains an unstable set of of features and may get expanded in the future.
+    /// It contains an unstable set of features and may get expanded in the future.
     ///
     /// Setting --auto enables: --schema=derived --derive=JsonSchema --docs
     #[arg(long, short = 'A')]
@@ -106,12 +106,11 @@ struct Kopium {
 
     /// Relaxed interpretation
     ///
-    /// This allows certain invalid openapi specs to be interpreted as arbitrary objects as used by argo workflows for example.
-    /// the output first.
+    /// This allows certain invalid openapi specs to be interpreted as arbitrary objects as used by argo workflows, for example.
     #[arg(long)]
     relaxed: bool,
 
-    /// Disable standardised Condition API
+    /// Disable standardized Condition API
     ///
     /// By default, kopium detects Condition objects and uses a standard
     /// Condition API from k8s_openapi instead of generating a custom definition.
@@ -129,7 +128,7 @@ struct Kopium {
     #[arg(long, value_enum, default_value_t)]
     map_type: MapType,
 
-    /// Automatically removes #[derive(Default)] from structs that contain fields for which a default can not be automatically derived.
+    /// Automatically removes `#[derive(Default)]` from structs that contain fields for which a default cannot be automatically derived.
     ///
     /// This option only has an effect if `--derive Default` is set.
     #[arg(long)]
@@ -456,7 +455,7 @@ fn find_crd_version<'a>(
 ) -> Result<&'a CustomResourceDefinitionVersion> {
     let mut iter = crd.spec.versions.iter();
     if let Some(version) = version {
-        // pick specified version
+        // pick the specified version
         iter.find(|v| v.name == version).ok_or_else(|| {
             anyhow!(
                 "Version '{}' not found in CRD '{}'\navailable versions are '{}'",
@@ -466,7 +465,7 @@ fn find_crd_version<'a>(
             )
         })
     } else {
-        // pick version with highest version priority
+        // pick the version with the highest version priority
         iter.max_by_key(|v| Version::parse(&v.name).priority())
             .ok_or_else(|| anyhow!("CRD '{}' has no versions", crd.name_any()))
     }
