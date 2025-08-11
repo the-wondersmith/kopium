@@ -390,6 +390,13 @@ impl Kopium {
         }
 
         println!("#[derive({})]", derives.join(", "));
+
+        // TODO: change the `builder` attribute to
+        // "#[builder(field_defaults(setter(strip_option(ignore_invalid, fallback_prefix = \"maybe_\"))))]"
+        // after https://github.com/idanarye/rust-typed-builder/pull/167 is merged
+        if derives.contains(&"TypedBuilder") {
+            println!("#[builder(field_defaults(setter(strip_option(ignore_invalid))))]");
+        }
     }
 
     fn has_status_resource(&self, results: &[Container]) -> bool {
